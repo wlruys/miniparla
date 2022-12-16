@@ -1,163 +1,190 @@
 #pragma once
 
-#include <vector>
-#include <string>
-#include <iostream>
-#include <thread>
-#include <mutex>
 #include <atomic>
+#include <iostream>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <thread>
+#include <vector>
 
 //Python Callbacks
-typedef void (*callerfunc)(void* f, void* task);
+typedef void (*callerfunc)(void* f, void* task, void* worker);
 typedef void (*stopfunc)(void* f);
 
 
-void launch_task_callback(callerfunc func, void* f, void* arg);
+void launch_task_callback(callerfunc func, void* f, void* task, void* worker);
 
 class InnerScheduler;
 
 //Runtime Classes
 
-class InnerTask {
+class InnerWorker {
+
     public:
-        //Unique ID of the task (dictionary key in python runtime)
-        long id = 0;
-        //Task Status
-        bool complete = false;
-        //Pointer to the python object that represents the task
-        void* task = NULL;
-        //Task Resources
-        float vcus = 0.0;
+        void* worker = NULL;
 
-        std::mutex m;
+        InnerWorker();
+        InnerWorker(void *worker) : worker(worker){};
+};
 
-        //Task dependencies
-        std::vector<InnerTask*> dependencies = std::vector<InnerTask*>();
-        std::atomic<int> num_deps = 0;
+class InnerTask {
+public:
+  // Unique ID of the task (dictionary key in python runtime)
+  long id = 0;
+  // Task Status
+  bool complete = false;
+  // Pointer to the python object that represents the task
+  void *task = NULL;
+  // Task Resources
+  float vcus = 0.0;
 
-        //Task dependents
-        std::vector<InnerTask*> dependents = std::vector<InnerTask*>();
+  std::mutex m;
 
-        InnerTask();
-        InnerTask(long id, void* task, float vcus);
+  // Task dependencies
+  std::vector<InnerTask *> dependencies = std::vector<InnerTask *>();
+  std::atomic<int> num_deps = 0;
 
-        void set_task(void* task);
+  // Task dependents
+  std::vector<InnerTask *> dependents = std::vector<InnerTask *>();
 
-        void add_dependency_unsafe(InnerTask* task);
-        void add_dependency(InnerTask* task);
-        void add_dependencies(std::vector<InnerTask*> task_list);
-        void clear_dependencies();
+  InnerTask();
+  InnerTask(long id, void *task, float vcus);
 
-        bool add_dependent(InnerTask* task);
-        void notify_dependents(InnerScheduler* scheduler);
-        bool notify();
+  void set_task(void *task);
 
-        bool blocked_unsafe();
-        bool blocked();
+  void add_dependency_unsafe(InnerTask *task);
+  void add_dependency(InnerTask *task);
+  void add_dependencies(std::vector<InnerTask *> task_list);
+  void clear_dependencies();
 
-        int get_num_deps();
+  bool add_dependent(InnerTask *task);
+  void notify_dependents(InnerScheduler *scheduler);
+  bool notify();
 
+  bool blocked_unsafe();
+  bool blocked();
+
+  int get_num_deps();
 };
 
 class InnerScheduler {
 
     public:
         //Task Ready Queue
-        std::vector<InnerTask*> ready_queue;
-        std::mutex ready_queue_mutex;
+      std::vector<InnerTask *> ready_queue;
+      std::mutex ready_queue_mutex;
 
-        //Resources (vcus)
-        std::atomic<float> resources;
-        std::mutex resources_mutex;
+      // Thread Queue
+      std::vector<InnerWorker *> thread_queue;
+      std::mutex thread_queue_mutex;
 
-        //Active Task Count
-        std::atomic<int> active_tasks;
-        std::mutex active_tasks_mutex;
+      // Resources (vcus)
+      std::atomic<float> resources;
+      std::mutex resources_mutex;
 
-        //Running Task Count
-        std::atomic<int> running_tasks;
-        std::mutex running_tasks_mutex;
+      // Ready Task Count
+      std::atomic<int> ready_tasks;
 
-        //Free Thread Count
-        std::atomic<int> free_threads;
-        std::mutex free_threads_mutex;
+      // Active Task Count
+      std::atomic<int> active_tasks;
+      std::mutex active_tasks_mutex;
 
-        std::mutex launching_phase_mutex; //mutex for launching phase
+      // Running Task Count
+      std::atomic<int> running_tasks;
+      std::mutex running_tasks_mutex;
 
-        //Simplify model
-        // Assume only a single task launching phase can run at a time
-        //  - This means the only thing that removes a thread from the pool is a critical section
+      // Free Thread Count
+      std::atomic<int> free_threads;
+      std::mutex free_threads_mutex;
 
-        // Assume the launching phase updates and releases resources
-        //  - This means the only thing that decreases resources is a critical section
+      std::mutex launching_phase_mutex; // mutex for launching phase
 
-        // Places that the ready queue is increased:
-        //  - When a task is completed, it notifies its dependents which may be added
-        //  - When a task is spawned, it may be added
+      // Simplify model
+      // Assume only a single task launching phase can run at a time
+      //  - This means the only thing that removes a thread from the pool is a
+      //  critical section
 
-        // Places that the ready queue is decreased:
-        //  - When a task is launched, it is removed from the ready queue
+      // Assume the launching phase updates and releases resources
+      //  - This means the only thing that decreases resources is a critical
+      //  section
 
-        // Dependencies/Dependents:
-        // - When a task is spawned, adds dependencies and dependents
-        // - When a task is completed, notifies dependents (decreases)
+      // Places that the ready queue is increased:
+      //  - When a task is completed, it notifies its dependents which may be
+      //  added
+      //  - When a task is spawned, it may be added
 
-        // Unfinished Dependency Count: 
-        // - When a task is spawned, adds dependencies to itself
-        // - When a task is continued, adds dependencies to itself
-        // - (no data movement in this model)
-        // - When a dependency completes, decreases count
+      // Places that the ready queue is decreased:
+      //  - When a task is launched, it is removed from the ready queue
 
-        //Termination Flag
-        bool should_run = 1;
+      // Dependencies/Dependents:
+      // - When a task is spawned, adds dependencies and dependents
+      // - When a task is completed, notifies dependents (decreases)
 
-        callerfunc call;
-        stopfunc py_stop;
-        void* func;
+      // Unfinished Dependency Count:
+      // - When a task is spawned, adds dependencies to itself
+      // - When a task is continued, adds dependencies to itself
+      // - (no data movement in this model)
+      // - When a dependency completes, decreases count
 
-        InnerScheduler();
-        InnerScheduler(callerfunc func, float resources, int nthreads);
+      // Termination Flag
+      bool should_run = 1;
 
-        void set_python_callback(callerfunc call, stopfunc stop, void* func);
-        void set_nthreads(int nthreads);
-        void set_resources(float resources);
+      callerfunc call;
+      stopfunc py_stop;
+      void *func;
 
-        void enqueue_task(InnerTask* task);
-        void enqueue_task_unsafe(InnerTask* task);
+      InnerScheduler();
+      InnerScheduler(callerfunc func, float resources, int nthreads);
 
-        InnerTask* dequeue_task();
-        InnerTask* dequeue_task_unsafe();
+      void set_python_callback(callerfunc call, stopfunc stop, void *func);
+      void set_nthreads(int nthreads);
+      void set_resources(float resources);
 
-        int get_ready_queue_size();
-        int get_ready_queue_size_unsafe();
+      void enqueue_task(InnerTask *task);
+      void enqueue_task_unsafe(InnerTask *task);
 
-        void run_scheduler();
-        bool run_launcher();
-        void launch_task(InnerTask* task);
+      InnerTask *dequeue_task();
+      InnerTask *dequeue_task_unsafe();
 
-        void run();
-        void stop();
+      float get_resources_next();
 
-        void incr_running_tasks();
-        void decr_running_tasks();
-        int get_running_tasks();
-        int get_running_tasks_unsafe();
+      int get_ready_queue_size();
+      int get_ready_queue_size_unsafe();
+      int get_ready_tasks();
+      int get_ready_tasks_unsafe();
 
-        void incr_active_tasks();
-        bool decr_active_tasks();
-        int get_active_tasks();
-        int get_active_tasks_unsafe();
+      int run_scheduler();
+      int run_launcher();
+      bool launch_task(InnerTask *task, InnerWorker *worker);
 
-        void incr_free_threads();
-        void decr_free_threads();
-        int get_free_threads();
-        int get_free_threads_unsafe();
+      void run();
+      void stop();
 
-        void incr_resources(float vcus);
-        void incr_resources_unsafe(float vcus);
-        void decr_resources(float vcus);
-        void decr_resources_unsafe(float vcus);
-        float get_resources();
-        float get_resources_unsafe();
+      void incr_running_tasks();
+      void decr_running_tasks();
+      int get_running_tasks();
+      int get_running_tasks_unsafe();
+
+      void incr_active_tasks();
+      bool decr_active_tasks();
+      int get_active_tasks();
+      int get_active_tasks_unsafe();
+
+      void incr_free_threads();
+      void decr_free_threads();
+      int get_free_threads();
+      int get_free_threads_unsafe();
+      void enqueue_worker(InnerWorker *worker);
+      InnerWorker *dequeue_worker();
+      int get_thread_queue_size();
+      int get_thread_queue_size_unsafe();
+
+      void incr_resources(float vcus);
+      void incr_resources_unsafe(float vcus);
+      void decr_resources(float vcus);
+      void decr_resources_unsafe(float vcus);
+      float get_resources();
+      float get_resources_unsafe();
 };
 

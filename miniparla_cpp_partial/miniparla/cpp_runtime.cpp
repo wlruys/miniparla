@@ -1,18 +1,19 @@
 #include "cpp_runtime.hpp"
 
-#include <vector>
-#include <mutex>
-#include <thread>
-#include <iostream>
-#include <string>
 #include <chrono>
+#include <iostream>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <thread>
+#include <vector>
 
 //Input: PythonTask
-//Explaination: Call python routine to attempt to grab a worker thread, assign a task to it, and then notify the thread. 
+//Explaination: Call python routine to attempt to grab a worker thread, assign a task to it, and then notify the thread.
 //Output: If no worker thread is available, return false. Otherwise, return true.
-void launch_task_callback(callerfunc func, void* f, void* arg) {
+void launch_task_callback(callerfunc func, void* f, void* task, void* worker) {
     //std::cout << "launch_task_callback" << std::endl;
-    func(f, arg);
+    func(f, task, worker);
     //std::cout << "launch_task_callback done" << std::endl;
     return;
 }
@@ -77,7 +78,7 @@ void InnerTask::clear_dependencies(){
     this->m.lock();
     this->dependencies.clear();
     this->m.unlock();
-}  
+}
 
 bool InnerTask::blocked(){
     this->m.lock();
@@ -145,9 +146,9 @@ InnerScheduler::InnerScheduler() {
     this->active_tasks = 1;
     this->running_tasks = 0;
 
-    this->ready_queue = std::vector<InnerTask*>();
+    this->ready_queue = std::vector<InnerTask *>();
 
-    this->free_threads = 1;
+    this->free_threads = 0;
 }
 
 InnerScheduler::InnerScheduler(callerfunc call, float resources, int nthreads) {
@@ -156,7 +157,7 @@ InnerScheduler::InnerScheduler(callerfunc call, float resources, int nthreads) {
     this->active_tasks = 1;
     this->running_tasks = 0;
 
-    this->ready_queue = std::vector<InnerTask*>();
+    this->ready_queue = std::vector<InnerTask *>();
     this->free_threads = 0;
 }
 
@@ -179,30 +180,65 @@ void InnerScheduler::set_nthreads(int nthreads) {
     this->free_threads_mutex.unlock();
 }
 
+void InnerScheduler::enqueue_worker(InnerWorker *worker) {
+  this->thread_queue_mutex.lock();
+  this->thread_queue.push_back(worker);
+  this->thread_queue_mutex.unlock();
+
+  this->free_threads++;
+}
+
+InnerWorker *InnerScheduler::dequeue_worker() {
+
+  this->thread_queue_mutex.lock();
+  // std::cout << "thread_queue size: " << this->thread_queue.size()
+  //<< this->free_threads << std::endl;
+  InnerWorker *worker = this->thread_queue.back();
+  this->thread_queue.pop_back();
+  this->thread_queue_mutex.unlock();
+  this->free_threads--;
+
+  return worker;
+}
+
 //Enqueue a task to ready (Safe/Unsafe)
 void InnerScheduler::enqueue_task(InnerTask* task){
     this->ready_queue_mutex.lock();
     this->ready_queue.push_back(task);
     this->ready_queue_mutex.unlock();
+    this->ready_tasks++;
 }
 
 void InnerScheduler::enqueue_task_unsafe(InnerTask* task){
-    this->ready_queue.push_back(task);
+  this->ready_queue.push_back(task);
+  this->ready_tasks++;
+}
+
+float InnerScheduler::get_resources_next() {
+  // this->ready_queue_mutex.lock();
+  InnerTask *task = this->ready_queue.back();
+  // this->ready_queue_mutex.unlock();
+  return task->vcus;
 }
 
 //Dequeue a task from ready (Safe/Unsafe)
 InnerTask* InnerScheduler::dequeue_task(){
     this->ready_queue_mutex.lock();
-    InnerTask* task = this->ready_queue.back();
+    InnerTask *task = this->ready_queue.back();
     this->ready_queue.pop_back();
     this->ready_queue_mutex.unlock();
+    this->ready_tasks--;
+    if (task == NULL) {
+      std::cout << "Task is NULL" << std::endl;
+    }
     return task;
 }
 
 InnerTask* InnerScheduler::dequeue_task_unsafe(){
-    InnerTask* task = this->ready_queue.back();
-    this->ready_queue.pop_back();
-    return task;
+  InnerTask *task = this->ready_queue.back();
+  this->ready_queue.pop_back();
+  this->ready_tasks--;
+  return task;
 }
 
 int InnerScheduler::get_ready_queue_size(){
@@ -216,115 +252,113 @@ int InnerScheduler::get_ready_queue_size_unsafe(){
     return this->ready_queue.size();
 }
 
-//Launch Tasks Task Callback
-bool InnerScheduler::run_launcher(){
-
-    ////std::cout << "run_launcher" << std::endl;
-
-    if (this->launching_phase_mutex.try_lock() ) {
-        //Only run the launcher if there are free threads and there are tasks to run
-        bool condition = this->get_free_threads() > 0 && this->get_active_tasks() != 0;
-
-        ////std::cout << "launcher condition " << condition << std::endl;
-
-        if(condition){
-            ////std::cout << "Number of free threads: " << this->get_free_threads() << std::endl;
-            ////std::cout << "Launching Phase (Get Ready Queue Lock)" << std::endl;
-            this->ready_queue_mutex.lock();
-            //std::cout << "Launching Phase (Has Ready Queue Lock)" << std::endl;
-            //Grab a task from the ready queue
-            bool has_task = this->get_ready_queue_size_unsafe() > 0;
-            //std::cout << "Has Task: " << has_task << std::endl;
-            if(has_task){
-                InnerTask* task = this->dequeue_task_unsafe();
-                //std::cout << "Dequeue Task" << std::endl;
-                this->ready_queue_mutex.unlock();
-
-                //std::cout << "Task: " << task->id << std::endl;
-
-                //Launch the task
-                this->launch_task(task);
-
-                //std::cout << "Launched Task." << std::endl;
-
-                //Release the lock
-                this->launching_phase_mutex.unlock();
-                return true;
-            }
-            else{
-                //std::cout << "No more tasks" << std::endl;
-                this->ready_queue_mutex.unlock();
-                this->launching_phase_mutex.unlock();
-                return false;
-            }
-        }
-        this->launching_phase_mutex.unlock();
-    }
-
-    return false;
+int InnerScheduler::get_thread_queue_size() {
+  this->thread_queue_mutex.lock();
+  int size = this->thread_queue.size();
+  this->thread_queue_mutex.unlock();
+  return size;
 }
 
-void InnerScheduler::run_scheduler(){
-    //std::cout << "Running Scheduler Callback" << std::endl;
-    bool launch_succeed = this->run_launcher();
-    //while(this->get_running_tasks() == 0 and this->get_active_tasks() > 1){
-    //   launch_succeed = this->run_launcher();
-    //}
-    //std::cout << "Scheduler Callback Finished: " << this->active_tasks << std::endl;
+int InnerScheduler::get_thread_queue_size_unsafe() {
+  return this->thread_queue.size();
+}
+
+int InnerScheduler::get_ready_tasks_unsafe() { return this->ready_tasks; }
+
+int InnerScheduler::get_ready_tasks() {
+  this->ready_queue_mutex.lock();
+  int size = this->ready_tasks;
+  this->ready_queue_mutex.unlock();
+  return size;
+}
+
+//Launch Tasks Task Callback
+int InnerScheduler::run_launcher() {
+
+  int exit_flag = 0;
+
+  if (true) {
+    exit_flag = 1;
+    bool has_task = true;
+    int count = 0;
+    while ((count < 1) && has_task) {
+      has_task = this->get_ready_tasks_unsafe() > 0;
+      count++;
+      if (has_task) {
+
+        exit_flag = 2;
+        // std::cout << "Resources, VCUS" << this->get_resources_unsafe() << ",
+        // "
+        //<< task->vcus << std::endl;
+        // this->ready_queue_mutex.lock();
+        float current_resources = this->get_resources_unsafe();
+        float next_resources = this->get_resources_next();
+        bool has_resources = (current_resources - next_resources) >= 0;
+
+        if (has_resources) {
+          exit_flag = 3;
+          bool has_thread = this->get_free_threads_unsafe() > 0;
+          if (has_thread) {
+            exit_flag = 4;
+            InnerTask *task = this->dequeue_task_unsafe();
+            InnerWorker *worker = this->dequeue_worker();
+            bool success = this->launch_task(task, worker);
+            if (success) {
+              exit_flag = 5;
+            }
+          } else {
+            // this->enqueue_task(task);
+          } // has_thread
+        } else {
+          // this->enqueue_task(task);
+        } // has_resources
+        // this->ready_queue_mutex.unlock();
+      }   // if has_task
+    }     // while true
+
+    // this->launching_phase_mutex.unlock();
+  }
+
+    return exit_flag;
+}
+
+int InnerScheduler::run_scheduler() {
+  // std::cout << "Running Scheduler Launcher" << std::endl;
+  int exit_flag = this->run_launcher();
+  // while(this->get_running_tasks() == 0 and this->get_active_tasks() > 1){
+  //   launch_succeed = this->run_launcher();
+  //}
+  // std::cout << "Scheduler Callback Finished: " << this->active_tasks << " "
+  //<< exit_flag << std::endl;
+  return exit_flag;
 }
 
 //Launch Task python callback
-void InnerScheduler::launch_task(InnerTask* task){
+bool InnerScheduler::launch_task(InnerTask *task, InnerWorker *worker) {
 
-    //this->resources_mutex.lock();
-    //std::cout << "Launcher:: Has resource lock" << std::endl;
-    ////std::cout << "Launching Task (Internal)" << std::endl;
-    //Get Python task
-    void* py_task = task->task;
+  bool success = false;
+  void *py_task = task->task;
+  void *py_worker = worker->worker;
 
-    //std::cout << "Resources: " << this->get_resources_unsafe() << " " << task->vcus << std::endl;
+  this->incr_running_tasks();
+  this->decr_resources(task->vcus);
 
-    if(this->get_resources_unsafe() - task->vcus < 0){
-        //std::cout << "Not enough resources. Re-enqueing." << std::endl;
-        //this->resources_mutex.unlock();
-        this->enqueue_task_unsafe(task);
-        return;
-    }
+  launch_task_callback(this->call, this->func, py_task, py_worker);
 
-    //std::cout << "Launching Task (Internal) 2" << std::endl;
-
-    //Call python routine to attempt to grab a worker thread, assign a task to it, and then notify the thread.
-    //If no worker thread is available, return false. Otherwise, return true.
-    launch_task_callback(this->call, this->func, py_task);
-
-    //std::cout << "Launching Task (Internal) 3" << std::endl;
-
-    bool success = true;
-
-    //If successful, increment running tasks
-    //If not successful, re-enqueue task
-    if( success) {
-        this->incr_running_tasks();
-        this->decr_free_threads();
-        //std::cout << "Decrementing free threads" << this->get_free_threads_unsafe() << std::endl;
-
-        this->decr_resources_unsafe(task->vcus);
-    }
-    else {
-        this->enqueue_task_unsafe(task);
-    }
-    //this->resources_mutex.unlock();
-    //std::cout << "Launcher:: Released resource lock" << std::endl;
+  success = true;
+  return success;
 }
 
 void InnerScheduler::run(){
-    //while (this->should_run) {
-        //run scheduler phases
-        //this->run_scheduler();
-        //sleep
-        //std::this_thread::sleep_for(std::chrono::milliseconds(1));
-
-    //}
+  unsigned long long i = 0;
+  int exit_flag = 0;
+  while (this->should_run) {
+    exit_flag = this->run_scheduler();
+    if (true) {
+      std::this_thread::sleep_for(std::chrono::microseconds(2000));
+    }
+    // std::cout << "Scheduler Loop: " << ++i << " " << exit_flag << std::endl;
+    }
 }
 
 //Stop
@@ -366,8 +400,9 @@ bool InnerScheduler::decr_active_tasks(){
     return condition;
 }
 
-//threads 
+//threads
 void InnerScheduler::incr_free_threads(){
+
     this->free_threads++;
 }
 
@@ -393,10 +428,12 @@ void InnerScheduler::incr_resources_unsafe(float resources){
 }
 
 void InnerScheduler::decr_resources(float resources){
-    //this->resources_mutex.lock();
-    //this->resources -= resources;
-    this->resources.fetch_sub(resources, std::memory_order_relaxed);
-    //this->resources_mutex.unlock();
+  // this->resources_mutex.lock();
+  // this->resources -= resources;
+  // std::cout << "Decrementing resources: " << this->resources << " "
+  //          << resources << std::endl;
+  this->resources.fetch_sub(resources, std::memory_order_relaxed);
+  // this->resources_mutex.unlock();
 }
 
 void InnerScheduler::decr_resources_unsafe(float resources){

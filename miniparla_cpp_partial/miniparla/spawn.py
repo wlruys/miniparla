@@ -2,6 +2,7 @@ from miniparla.runtime import TaskID, Resources, get_scheduler_context, task_loc
 from miniparla.barriers import Tasks
 import inspect
 
+#@profile
 def _make_cell(val):
     """
     Create a new Python closure cell object.
@@ -16,7 +17,7 @@ def _make_cell(val):
     return closure.__closure__[0]
 
 
-
+#@profile
 def spawn(taskid=None,  dependencies=[], vcus=1):
 
     if not taskid:
@@ -25,7 +26,7 @@ def spawn(taskid=None,  dependencies=[], vcus=1):
 
         task_locals.global_tasks += [taskid]
 
-    # @profile
+    #@profile
     def decorator(body):
         nonlocal vcus
         req = Resources(vcus)
@@ -49,12 +50,9 @@ def spawn(taskid=None,  dependencies=[], vcus=1):
         if isinstance(scheduler, WorkerThread):
             scheduler = scheduler.scheduler
 
-        task = scheduler.spawn_task(function=_task_callback, args=(
-            separated_body,), dependencies=processed_dependencies, taskid=taskid, req=req, name=getattr(body, "___name__", None))
-
+        task = scheduler.spawn_task(function=_task_callback, args=(separated_body,), dependencies=processed_dependencies, taskid=taskid, req=req, name=getattr(body, "___name__", None))
         scheduler.run_scheduler()
 
         return task
 
     return decorator
-

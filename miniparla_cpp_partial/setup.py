@@ -27,22 +27,31 @@ def makeExtension(extName):
         #       extra_compile_args=["-std=c++11","--expt-extended-lambda", "-Xcudafe","--diag_suppress=esa_on_defaulted_function_ignored"]
     )
 
+compile_args =["-std=c++20", "-fopenmp", "-lpthread", "-lgomp", "-lm", "-O3"]
+
+compile_args_debug = ["-std=c++20", "-fopenmp", "-lpthread", "-lgomp", "-lm", "-g", "-O0"]
+compile_args = compile_args_debug
 
 extensions = []
 extensions.append(Extension("miniparla.task_states", ["miniparla/task_states.pyx"],
                             include_dirs=['miniparla'],
                             library_dirs=['miniparla'],
-                            language="c++",
-                            extra_compile_args=["-std=c++20", "-fopenmp", "-lpthread", "-lgomp", "-lm"]))
+                            emit_linenums=True,
+                            extra_compile_args=compile_args,
+                            language="c++"
+                            )
+                  )
 
 extensions.append(Extension("miniparla.runtime", ["miniparla/runtime.pyx",
                             "miniparla/cpp_runtime.cpp"],
                             include_dirs=['miniparla'],
                             library_dirs=['miniparla'],
                             depends=['miniparla/cpp_runtime.hpp'],
-                            extra_compile_args=[
-                                "-std=c++20", "-fopenmp", "-lpthread", "-lgomp", "-lm"],
-                            language="c++"))
+                            extra_compile_args=compile_args,
+                            emit_linenums=True,
+                            language="c++"
+                            )
+                  )
 
 
 setup(name="miniparla",
@@ -50,7 +59,7 @@ setup(name="miniparla",
       url="https://github.com/ut-parla/Parla.py",
       description="Parla: A heterogenous Python Tasking system",
       packages=['miniparla'],
-      ext_modules=cythonize(extensions, language_level="3"),
+      ext_modules=cythonize(extensions, language_level="3", emit_linenums=True),
       include_package_data=True,
       zip_safe=False
       # ext_modules = cache_filler_modules + cython_modules,

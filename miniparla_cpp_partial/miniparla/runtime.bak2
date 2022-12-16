@@ -206,8 +206,7 @@ cdef class PyInnerTask:
 
     cpdef set_dependencies(self, dependencies):
         for dependency in dependencies:
-            inner_dep = dependency.inner_task
-            self.add_dependency(inner_dep)
+            self.add_dependency(dependency)
 
     cpdef add_dependency(self, PyInnerTask dependency):
         task = dependency.task
@@ -259,9 +258,9 @@ class Task:
 
             self._state = TaskRunning(func, args, dependencies)
 
-            #flat_deps = [dep.task.inner_task for dep in dependencies]
+            flat_deps = [dep.task.inner_task for dep in dependencies]
             self.inner_task = PyInnerTask(self.id, self, req.vcus)
-            self.inner_task.set_dependencies(dependencies)
+            self.inner_task.set_dependencies(flat_deps)
 
             self.context = get_scheduler_context()
 
@@ -329,13 +328,13 @@ class Task:
 
         elif isinstance(new_state, TaskRunning):
             #print("Spawning Continuation", flush=True)
-            #if new_state.dependencies is not None:
-            #    flat_deps = [dep.inner_task for dep in new_state.dependencies]
-            #else:
-            #    flat_deps = None
+            if new_state.dependencies is not None:
+                flat_deps = [dep.inner_task for dep in new_state.dependencies]
+            else:
+                flat_deps = None
 
             #print("Cont. Dependencies", flat_deps, flush=True)
-            self.set_dependencies(new_state.dependencies)
+            self.set_dependencies(flat_deps)
 
             if not self.blocked_unsafe():
                 ctx.scheduler.enqueue_task(self)
@@ -543,10 +542,8 @@ cdef class PyInnerScheduler:
     def __init__(self, int num_threads, float max_resources):
         cdef InnerScheduler* s = self.scheduler
         cdef float c_resources = max_resources
-        #with nogil:
-        #    s.set_resources(c_resources)
-
-        s.set_resources(c_resources)
+        with nogil:
+            s.set_resources(c_resources)
         #self.scheduler.set_nthreads(0)
 
     def set_callback(self, obj):
@@ -558,10 +555,9 @@ cdef class PyInnerScheduler:
 
         cdef InnerScheduler* s = self.scheduler
 
-        #with nogil:
-        #    s.set_python_callback(c_f, c_stop, c_i)
+        with nogil:
+            s.set_python_callback(c_f, c_stop, c_i)
 
-        s.set_python_callback(c_f, c_stop, c_i)
 
     def __dealloc__(self):
         del self.scheduler
@@ -578,27 +574,27 @@ cdef class PyInnerScheduler:
 
     def incr_active_tasks(self):
         cdef InnerScheduler* s = self.scheduler
-        # with nogil:
-            # s.incr_active_tasks()
-        s.incr_active_tasks()
+        with nogil:
+            s.incr_active_tasks()
+        #s.incr_active_tasks()
 
     def decr_active_tasks(self):
         cdef InnerScheduler* s = self.scheduler
-        # with nogil:
-            # s.decr_active_tasks()
-        s.decr_active_tasks()
+        with nogil:
+            s.decr_active_tasks()
+        #s.decr_active_tasks()
 
     def incr_running_tasks(self):
         cdef InnerScheduler* s = self.scheduler
-        # with nogil:
-            # s.incr_running_tasks()
-        s.incr_running_tasks()
+        with nogil:
+            s.incr_running_tasks()
+        #s.incr_running_tasks()
 
     def decr_running_tasks(self):
         cdef InnerScheduler* s = self.scheduler
-        #with nogil:
-        #    s.decr_running_tasks()
-        self.scheduler.decr_running_tasks()
+        with nogil:
+            s.decr_running_tasks()
+        #self.scheduler.decr_running_tasks()
 
     def incr_free_threads(self):
         cdef InnerScheduler* s = self.scheduler
@@ -615,24 +611,24 @@ cdef class PyInnerScheduler:
     def incr_resources(self, float resources):
         cdef InnerScheduler* s = self.scheduler
         cdef float r = resources
-        #with nogil:
-        #    s.incr_resources(r)
-        s.incr_resources(r)
+        with nogil:
+            s.incr_resources(r)
+        #s.incr_resources(r)
         #self.scheduler.incr_resources(resources)
 
     def decr_resources(self, float resources):
         cdef InnerScheduler* s = self.scheduler
         cdef float r = resources
-        #with nogil:
-        #    s.decr_resources(r)
-        s.decr_resources(r)
+        with nogil:
+            s.decr_resources(r)
+        #s.decr_resources(r)
         #self.scheduler.decr_resources(resources)
 
     def get_active_tasks(self):
         cdef InnerScheduler* s = self.scheduler
         cdef int ret = 0
-        #with nogil:
-        #    ret = s.get_active_tasks()
+        with nogil:
+            ret = s.get_active_tasks()
         ret = s.get_active_tasks()
         return ret
         #return self.scheduler.get_active_tasks()
@@ -662,17 +658,15 @@ cdef class PyInnerScheduler:
     def enqueue_task(self, PyInnerTask task):
         cdef InnerScheduler* s = self.scheduler
         cdef InnerTask* t = task.task
-        #with nogil:
-        #    s.enqueue_task(t)
-        s.enqueue_task(t)
+        with nogil:
+            s.enqueue_task(t)
         #self.scheduler.enqueue_task(task.task)
 
     def enqueue_worker(self, PyInnerWorker worker):
         cdef InnerScheduler* s = self.scheduler
         cdef InnerWorker* w = worker.inner_worker
-        #with nogil:
-        #    s.enqueue_worker(w)
-        s.enqueue_worker(w)
+        with nogil:
+            s.enqueue_worker(w)
         #self.scheduler.enqueue_task(task.task)
 
     def get_status(self):
