@@ -93,7 +93,8 @@ def main(N, d, steps, NUM_WORKERS, WIDTH, cpu_array, sync_flag, vcu_flag,
                     await Tasks([T[1, t, l] for l in range(WIDTH)])
                 else:
                     await T
-                    print("Task WAKE ", t, flush=True)
+                    if verbose:
+                        print("Task WAKE ", t, flush=True)
 
         if not sync_flag:
             if restrict_flag:
@@ -148,7 +149,6 @@ if __name__ == "__main__":
         increment_wrapper(cpu_array[ng], 1)
 
     with Parla():
-        print("args.verbose", args.verbose, flush=True)
         main(N, d, STEPS, NUM_WORKERS, args.width, cpu_array, isync, args.vcus,
              args.deps, args.verbose, args.t, args.accesses, args.frac,
              args.sleep, args.strong, args.restrict)
