@@ -128,7 +128,7 @@ if __name__ == "__main__":
     parser.add_argument("--frac", type=float, default=0)
 
     parser.add_argument('--strong', type=int, default=0)
-    parser.add_argument('--sleep', type=int, default=0)
+    parser.add_argument('--sleep', type=int, default=1)
     parser.add_argument('--restrict', type=int, default=0)
 
     args = parser.parse_args()
@@ -150,7 +150,18 @@ if __name__ == "__main__":
         cpu_array.append(np.zeros([N, d]))
         increment_wrapper(cpu_array[ng], 1)
 
-    with Parla():
-        main(N, d, STEPS, NUM_WORKERS, args.width, cpu_array, isync, args.vcus,
-             args.deps, args.verbose, args.t, args.accesses, args.frac,
-             args.sleep, args.strong, args.restrict)
+    def drange(start, stop):
+        while start < stop:
+            yield start
+            start <<= 1
+
+    print(', '.join([str('workers'), str('n'), str('task_time'), str(
+        'accesses'), str('frac'), str('total_time')]), flush=True)
+    for task_time in [10000, 50000]:
+        for accesses in [1]:
+            for nworkers in drange(1, args.workers):
+                for frac in [0]:
+                    with Parla():
+                        main(N, d, STEPS, nworkers, nworkers, cpu_array, isync, args.vcus,
+                             args.deps, args.verbose, task_time, accesses, frac,
+                             args.sleep, args.strong, args.restrict)
