@@ -73,6 +73,9 @@ cdef extern from "cpp_runtime.hpp" nogil:
         void set_nthreads(int nthreads) except +
         void set_resources(float resources) except +
 
+        void has_update() except +
+        void no_update() except +
+
         void enqueue_task(InnerTask* task) except +
         void enqueue_task_unsafe(InnerTask* task) except +
 

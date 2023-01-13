@@ -242,11 +242,13 @@ void InnerScheduler::enqueue_task(InnerTask* task){
     this->ready_queue.push_back(task);
     this->ready_queue_mutex.unlock();
     this->ready_tasks++;
+    this->has_update();
 }
 
 void InnerScheduler::enqueue_task_unsafe(InnerTask* task){
   this->ready_queue.push_back(task);
   this->ready_tasks++;
+  this->has_update();
 }
 
 float InnerScheduler::get_resources_next() {
@@ -294,6 +296,28 @@ int InnerScheduler::get_thread_queue_size() {
   return size;
 }
 
+void InnerScheduler::has_update() {
+  /*
+std::unique_lock<std::mutex> lk(this->m);
+this->update = true;
+lk.unlock();
+this->cv.notify_one();
+*/
+}
+
+void InnerScheduler::no_update() {
+  /*
+std::unique_lock<std::mutex> lk(this->m);
+this->update = false;
+// std::cout << "WAITING ON UPDATE" << std::endl;
+auto now = std::chrono::system_clock::now();
+cv.wait_until(lk, now + 200us);
+// cv.wait(lk);
+this->update = true;
+lk.unlock();
+*/
+}
+
 int InnerScheduler::get_thread_queue_size_unsafe() {
   return this->thread_queue.size();
 }
@@ -319,7 +343,7 @@ int InnerScheduler::run_launcher() {
     int count = 0;
 
     while ((count < 1) && has_task) {
-      has_task = this->get_ready_queue_size() > 0;
+      has_task = this->get_ready_tasks_unsafe() > 0;
 
       // std::cout << "has_task: " << has_task << " " <<
       // this->get_ready_tasks_unsafe()
@@ -329,10 +353,12 @@ int InnerScheduler::run_launcher() {
       if (has_task) {
 
         exit_flag = 2;
+
         // std::cout << "Resources, VCUS" << this->get_resources_unsafe() << ",
         // "
         //<< task->vcus << std::endl;
         // this->ready_queue_mutex.lock();
+
         float current_resources = this->get_resources_unsafe();
         float next_resources = this->get_resources_next();
         bool has_resources = (current_resources - next_resources) >= 0;
@@ -356,7 +382,9 @@ int InnerScheduler::run_launcher() {
           } // has_thread
         } else {
           // this->enqueue_task(task);
+          this->no_update();
         } // has_resources
+        this->no_update();
         // this->ready_queue_mutex.unlock();
       }   // if has_task
     }     // while true
@@ -403,8 +431,8 @@ void InnerScheduler::run(){
   int exit_flag = 0;
   while (this->should_run) {
     exit_flag = this->run_scheduler();
-    if (true) {
-      std::this_thread::sleep_for(std::chrono::microseconds(200));
+    if (false) {
+      std::this_thread::sleep_for(std::chrono::microseconds(20));
     }
     // std::cout << "Scheduler Loop: " << ++i << " " << exit_flag << std::endl;
     }
@@ -466,6 +494,7 @@ void InnerScheduler::incr_resources(float resources){
     ////std::cout<<"Incrementing resources: got lock"<< std::endl;
     //this->resources += resources;
     this->resources.fetch_add(resources, std::memory_order_relaxed);
+    this->has_update();
     //this->resources_mutex.unlock();
     ////std::cout<<"Incrementing resources: released lock"<< std::endl;
 
@@ -474,6 +503,7 @@ void InnerScheduler::incr_resources(float resources){
 void InnerScheduler::incr_resources_unsafe(float resources){
     //this->resources += resources;
     this->resources.fetch_add(resources, std::memory_order_relaxed);
+    this->has_update();
 }
 
 void InnerScheduler::decr_resources(float resources){

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -8,6 +10,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+using namespace std::chrono_literals;
 
 #ifdef PARLA_LOGGING
 #include <binlog/binlog.hpp>
@@ -103,6 +107,11 @@ class InnerScheduler {
       std::vector<InnerWorker *> thread_queue;
       std::mutex thread_queue_mutex;
 
+      // Update flag
+      std::mutex m;
+      std::condition_variable cv;
+      bool update = true;
+
       // Resources (vcus)
       std::atomic<float> resources;
       std::mutex resources_mutex;
@@ -165,6 +174,8 @@ class InnerScheduler {
       void set_nthreads(int nthreads);
       void set_resources(float resources);
 
+      void has_update();
+      void no_update();
 
       void enqueue_task(InnerTask *task);
       void enqueue_task_unsafe(InnerTask *task);
