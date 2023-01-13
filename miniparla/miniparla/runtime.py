@@ -70,31 +70,39 @@ class TaskID:
     def __await__(self):
         return (yield TaskAwaitTasks([self.task], self.task))
 
+    def __str__(self):
+        return self.full_name
+
+    def __repr__(self):
+        return self.full_name
 
 class InnerTask:
 
-    def __init__(self, id, dependencies):
+    def __init__(self, id, dependencies, task):
 
         self.complete = False
         self.id = id
+        self.outer = task
 
         self._mutex = threading.Condition(threading.Lock())
         self._dependents = []
-        self.dependencies = dependencies
+        self.set_dependencies(dependencies)
 
     @property
     def dependencies(self):
         with self._mutex:
             return self._dependencies
 
-    @dependencies.setter
-    def dependencies(self, v):
+    #@profile
+    def set_dependencies(self, v):
         with self._mutex:
+
             self._dependencies = list(v)
             self._num_dependencies = len(self._dependencies)
 
             for dependency in self._dependencies:
-                if not dependency.add_dependent(self):
+                inner = dependency.inner_task
+                if not inner.add_dependent(self):
                     self._num_dependencies -= 1
 
     def blocked(self):
@@ -112,6 +120,7 @@ class InnerTask:
                 self._dependents.append(task)
                 return True
 
+    #@profile
     def notify_dependents(self):
         #print(self._dependents, len(self._dependents), flush=True)
         self._notify_list = []
@@ -121,7 +130,7 @@ class InnerTask:
                 #print(task, flush=True)
                 if task.dependency_completed():
                     self._notify_list.append(task)
-            self._dependents = []
+            # self._dependents.clear()
             self.complete = True
 
         return self._notify_list
@@ -145,9 +154,16 @@ class InnerTask:
                 task.add_dependent(self)
                 return True
 
+    def __str__(self):
+        return str(self.outer)
+
+    def __repr__(self):
+        return repr(self.outer)
+
 
 class Task:
 
+    #@profile
     def __init__(self, func, args, dependencies, taskid, req, name):
         self._mutex = threading.Lock()
 
@@ -156,14 +172,12 @@ class Task:
             self._func = func
             self._args = args
             self._taskid = taskid
-            self._taskid._task = self
+            self._taskid.task = self
             self._req = req
             self._name = name
-
             self._state = TaskRunning(func, args, dependencies)
 
-            flat_deps = [dep.task.inner_task for dep in dependencies]
-            self.inner_task = InnerTask(self.id, flat_deps)
+            self.inner_task = InnerTask(self.id, dependencies, self)
 
             self.context = get_scheduler_context()
 
@@ -203,6 +217,7 @@ class Task:
 
                 except Exception as e:
                     task_state = TaskException(e)
+                    print("Exception in task", self, e, flush=True)
 
                 finally:
                     ctx = get_scheduler_context()
@@ -217,6 +232,7 @@ class Task:
         self._func = None
         self._args = None
 
+    #@profile
     def _set_state(self, new_state, ctx):
 
         self._state = new_state
@@ -226,14 +242,15 @@ class Task:
             ctx.scheduler.stop()
 
         elif isinstance(new_state, TaskRunning):
-            if new_state.dependencies is not None:
-                flat_deps = [dep.inner_task for dep in new_state.dependencies]
-            else:
-                flat_deps = None
-            self.dependencies = flat_deps
+            #print(new_state, self, new_state.dependencies)
+            #if new_state.dependencies is not None:
+            #    flat_deps = [dep.inner_task for dep in new_state.dependencies]
+            #else:
+            #    flat_deps = []
+            self.dependencies = new_state.dependencies
             if not self.blocked_unsafe():
                 ctx.scheduler.enqueue_task(self)
-            new_state.dependencies = []
+            new_state.dependencies.clear()
 
         if new_state.is_terminal:
             # Remove from TaskDict
@@ -272,7 +289,14 @@ class Task:
 
     @dependencies.setter
     def dependencies(self, v):
-        self.inner_task.dependencies = v
+        self.inner_task.set_dependencies(v)
+
+    def __str__(self):
+        return str(self._taskid)
+
+    def __repr__(self):
+        return repr(self._taskid)
+
 
 
 class _TaskLocals(threading.local):
@@ -434,7 +458,7 @@ class TaskDict:
 
 class Scheduler(ControllableThread, SchedulerContext):
 
-    def __init__(self, n_threads=8, period=0.001):
+    def __init__(self, n_threads=8, period=1e-6):
         super().__init__()
         self._monitor = threading.Condition(threading.Lock())
         self._n_threads = n_threads
@@ -622,7 +646,6 @@ class Resources:
         self.vcus = vcus
 
 
-# @profile
 def _task_callback(task, body) -> TaskState:
     """
     A function which forwards to a python function in the appropriate device context.
@@ -684,7 +707,7 @@ def spawn(taskid=None,  dependencies=[], vcus=1):
 
         task_locals.global_tasks += [taskid]
 
-    # @profile
+    #@profile
     def decorator(body):
         nonlocal vcus
         req = Resources(vcus)

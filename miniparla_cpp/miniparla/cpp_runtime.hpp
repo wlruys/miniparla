@@ -1,12 +1,26 @@
 #pragma once
 
 #include <atomic>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <queue>
 #include <string>
 #include <thread>
 #include <vector>
+
+#ifdef PARLA_LOGGING
+#include <binlog/binlog.hpp>
+
+#define LOG(args...) BINLOG_INFO(args)
+
+#else
+
+#define LOG(args...)
+
+#endif
+
+int log_write(std::string filename);
 
 //Python Callbacks
 typedef void (*callerfunc)(void* f, void* task, void* worker);
@@ -42,6 +56,8 @@ public:
   // Task Type
   int type = 0;
 
+  std::string name = "";
+
   std::mutex m;
 
   // Task dependencies
@@ -53,6 +69,8 @@ public:
 
   InnerTask();
   InnerTask(long id, void *task, float vcus);
+
+  void set_name(std::string name);
 
   void set_task(void *task);
 

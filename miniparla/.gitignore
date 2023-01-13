@@ -1,0 +1,8 @@
+miniparla/__pycache__/*
+__pycache__/*
+*.so
+*.out
+*.svg
+*.png
+backup/*
+build/*

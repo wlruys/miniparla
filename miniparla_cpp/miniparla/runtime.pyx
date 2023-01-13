@@ -13,6 +13,7 @@ import logging
 import cython
 cimport cython
 from libcpp cimport bool
+from libcpp.string cimport string
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,8 @@ cdef extern from "cpp_runtime.hpp" nogil:
     ctypedef void (*callerfunc)(void* f, void* python_task, void* python_worker);
     ctypedef void (*stopfunc)(void* f);
     ctypedef void* launcherfunc;
+
+    int log_write(string file);
 
     void launch_task_callback(callerfunc func, void* f, void* python_task,void* python_worker) except +
 
@@ -42,6 +45,7 @@ cdef extern from "cpp_runtime.hpp" nogil:
         InnerTask(long i, void* python_task, float vcus) except +
 
         void set_task(void* task) except +
+        void set_name(string name) except +
 
         void add_dependency_unsafe(InnerTask* task) except +
         void add_dependency(InnerTask* task) except +
@@ -110,6 +114,10 @@ def hello(task):
     print("Hello from python", flush=True)
     print(task.id)
 
+
+def log_finalize(filename):
+    mystring_ = filename.encode('utf-8')
+    log_write(mystring_)
 
 cdef void callback_add(void* python_scheduler, void* python_task, void*
         python_worker) nogil:
@@ -203,6 +211,9 @@ cdef class PyInnerTask:
         temp.vcus = vcus
 
         temp.set_task(<void*> python_task)
+        name = python_task._taskid.full_name
+        name = name.encode('utf-8')
+        temp.set_name(name)
         #print("Made new task (Python)", flush=True)
         #print("Task id", self.task.id, flush=True)
 
@@ -338,7 +349,7 @@ class Task:
             #    flat_deps = None
 
             #self.inner_task.task.set_type_unsafe(1);
-            print("Task Spawning Continuation", len(new_state.dependencies), flush=True)
+            #print("Task Spawning Continuation", len(new_state.dependencies), flush=True)
             self.set_dependencies(new_state.dependencies)
             #print("Task Spawning Continuation Filtered Deps",
             #        self.inner_task.task.get_num_deps(), flush=True)
@@ -452,7 +463,7 @@ cdef class PyInnerWorker:
 
     def __cinit__(self, worker):
         self.inner_worker = new InnerWorker(<void*> worker)
-        print("Created Inner Worker", flush=True)
+        #print("Created Inner Worker", flush=True)
 
 class WorkerThread(ControllableThread, SchedulerContext):
     def __init__(self, scheduler, index):
@@ -710,7 +721,7 @@ class Scheduler(ControllableThread, SchedulerContext):
                 break
             time.sleep(0.0001)
 
-        print("Scheduler ready", flush=True)
+        #print("Scheduler ready", flush=True)
         self.start()
 
 
@@ -735,6 +746,8 @@ class Scheduler(ControllableThread, SchedulerContext):
 
             for t in self._worker_threads:
                 t.join()
+
+            log_finalize("parla.log")
 
             if self._exceptions:
                 raise self._exceptions[0]

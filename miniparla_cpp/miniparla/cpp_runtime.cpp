@@ -1,12 +1,36 @@
 #include "cpp_runtime.hpp"
 
 #include <chrono>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <queue>
 #include <string>
 #include <thread>
 #include <vector>
+
+#ifdef PARLA_LOGGING
+#include <binlog/binlog.hpp>
+
+int log_write(std::string filename) {
+  std::ofstream logfile(filename.c_str(),
+                        std::ofstream::out | std::ofstream::binary);
+  binlog::consume(logfile);
+
+  if (!logfile) {
+    std::cerr << "Failed to write logfile!\n";
+    return 1;
+  }
+
+  std::cout << "Log file written to " << filename << std::endl;
+  return 0;
+}
+
+#else
+
+int log_write(std::string filename) { return 0; }
+
+#endif
 
 //Input: PythonTask
 //Explaination: Call python routine to attempt to grab a worker thread, assign a task to it, and then notify the thread.
@@ -46,9 +70,9 @@ InnerTask::InnerTask(long id, void* task, float vcus) {
     this->num_deps = 0;
 }
 
-void InnerTask::set_task(void* task) {
-    this->task = task;
-}
+void InnerTask::set_task(void *task) { this->task = task; }
+
+void InnerTask::set_name(std::string name) { this->name = name; }
 
 void InnerTask::set_type_unsafe(int type){
     this->type=type;
@@ -124,16 +148,17 @@ bool InnerTask::add_dependent(InnerTask* task){
 }
 
 void InnerTask::notify_dependents(InnerScheduler* scheduler){
-    this->m.lock();
-    //std::cout << "notify_dependents " << this->id << std::endl;
-    this->complete = true;
-    for (int i = 0; i < this->dependents.size(); i++) {
-        bool notify = this->dependents[i]->notify();
-        //std::cout << "notify_status " << notify << std::endl;
-        if (notify) {
-            //std::cout << "Enqueueing task" << std::endl;
-            scheduler->enqueue_task(this->dependents[i]);
-        }
+  LOG("Finished Task {}", this->name);
+  this->m.lock();
+  // std::cout << "notify_dependents " << this->id << std::endl;
+  this->complete = true;
+  for (int i = 0; i < this->dependents.size(); i++) {
+    bool notify = this->dependents[i]->notify();
+    // std::cout << "notify_status " << notify << std::endl;
+    if (notify) {
+      // std::cout << "Enqueueing task" << std::endl;
+      scheduler->enqueue_task(this->dependents[i]);
+    }
     }
     this->m.unlock();
 }
@@ -296,8 +321,9 @@ int InnerScheduler::run_launcher() {
     while ((count < 1) && has_task) {
       has_task = this->get_ready_queue_size() > 0;
 
-      std::cout << "has_task: " << has_task << " " << this->get_ready_tasks_unsafe()
-                << " " << this->ready_queue.size() << std::endl;
+      // std::cout << "has_task: " << has_task << " " <<
+      // this->get_ready_tasks_unsafe()
+      //          << " " << this->ready_queue.size() << std::endl;
 
       count++;
       if (has_task) {
@@ -347,9 +373,10 @@ int InnerScheduler::run_scheduler() {
   // while(this->get_running_tasks() == 0 and this->get_active_tasks() > 1){
   //   launch_succeed = this->run_launcher();
   //}
-  std::cout << "Scheduler Callback Finished: " << this->active_tasks << " "
-            << this->running_tasks << " " << this->get_ready_queue_size_unsafe()
-            << " " << exit_flag << std::endl;
+  // std::cout << "Scheduler Callback Finished: " << this->active_tasks << " "
+  //          << this->running_tasks << " " <<
+  //          this->get_ready_queue_size_unsafe()
+  //          << " " << exit_flag << std::endl;
   return exit_flag;
 }
 
@@ -364,6 +391,8 @@ bool InnerScheduler::launch_task(InnerTask *task, InnerWorker *worker) {
   this->decr_resources(task->vcus);
 
   launch_task_callback(this->call, this->func, py_task, py_worker);
+
+  LOG("Launching Task {}", task->name);
 
   success = true;
   return success;

@@ -1,6 +1,7 @@
 from abc import abstractmethod, ABCMeta
 from typing import Optional, List
 
+
 class TaskState(object, metaclass=ABCMeta):
     __slots__ = []
 
@@ -66,14 +67,15 @@ class TaskRunning(TaskState):
 
     # The argument dependencies intentially has no type hint.
     # Callers can pass None if they want to pass empty dependencies.
+    #@profile
     def __init__(self, func, args, dependencies: Optional[List]):
         if dependencies is not None:
             # d could be one of four types: Task, DataMovementTask, TaskID or other types.
             #assert all(isinstance(d, (Task, TaskID)) for d in dependencies)
-            #self.dependencies = [
+            # self.dependencies = [
             #    d for d in dependencies if isinstance(d, Task)]
 
-            #COMMENT(wlr): I think we shouldn't filter out the TaskID here. Otherwise, we cannot barrier on unspawned tasks
+            # COMMENT(wlr): I think we shouldn't filter out the TaskID here. Otherwise, we cannot barrier on unspawned tasks
             self.dependencies = dependencies
         else:
             self.dependencies = []
@@ -81,7 +83,7 @@ class TaskRunning(TaskState):
         self.func = func
 
     def clear_dependencies(self):
-        self.dependencies = []
+        self.dependencies.clear()
 
     def __repr__(self):
         if self.func:
@@ -89,6 +91,7 @@ class TaskRunning(TaskState):
             return "TaskRunning({})".format(self.func.__name__)
         else:
             return "Functionless task"
+
 
 class TaskCompleted(TaskState):
     __slots__ = ["ret"]
@@ -118,8 +121,6 @@ class TaskException(TaskState):
         return "TaskException({})".format(self.exc)
 
 
-
-
 class LocalMappedTasks:
     """
     Data structure to hold all "Mapped" (TaskMapped state) tasks that have been assigned a device.
@@ -133,21 +134,19 @@ class MappedTasks:
     """
 
     def __init__(self):
-        
-        #Initialize a LocalMappedTasks for each device
 
-        #Initializez a LocalMappedTasks for multi-device tasks
+        # Initialize a LocalMappedTasks for each device
+
+        # Initializez a LocalMappedTasks for multi-device tasks
 
         pass
 
     def add(self, task_list):
-        #Add tasks to the corresponding LocalMappedTasks queues
+        # Add tasks to the corresponding LocalMappedTasks queues
 
         pass
 
     def get(self, device):
-        #Retrieve the next task from the LocalMappedTasks queue for the given device
+        # Retrieve the next task from the LocalMappedTasks queue for the given device
 
         pass
-
-

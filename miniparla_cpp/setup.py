@@ -4,6 +4,8 @@ import os
 from setuptools import setup, Extension
 from Cython.Build import cythonize
 
+logging = True
+debug = True
 
 def scandir(dir, files=[]):
     for file in os.listdir(dir):
@@ -28,14 +30,32 @@ def makeExtension(extName):
     )
 
 compile_args =["-std=c++20", "-fopenmp", "-lpthread", "-lgomp", "-lm", "-O3"]
-
 compile_args_debug = ["-std=c++20", "-fopenmp", "-lpthread", "-lgomp", "-lm", "-g", "-O0"]
-compile_args = compile_args_debug
+
+if debug:
+    compile_args = compile_args_debug
+
+if logging:
+    log_include = "/home/will/workspace/binlog/install/usr/local/include/"
+    log_lib = "/home/will/workspace/binlog/install/usr/local/lib/"
+    compile_args += ["-DPARLA_LOGGING"]
+else:
+    log_include = ""
+    log_lib = ""
+
+python_include = "/home/will/miniconda3/include/python3.9/"
+
+if logging:
+    include_dirs = [python_include, log_include]
+    library_dirs = [log_lib]
+else:
+    include_dirs = [python_include]
+    library_dirs = []
 
 extensions = []
 extensions.append(Extension("miniparla.task_states", ["miniparla/task_states.pyx"],
-                            include_dirs=['miniparla'],
-                            library_dirs=['miniparla'],
+                            include_dirs=['miniparla']+include_dirs,
+                            library_dirs=['miniparla']+library_dirs,
                             emit_linenums=True,
                             extra_compile_args=compile_args,
                             language="c++"
@@ -44,8 +64,8 @@ extensions.append(Extension("miniparla.task_states", ["miniparla/task_states.pyx
 
 extensions.append(Extension("miniparla.runtime", ["miniparla/runtime.pyx",
                             "miniparla/cpp_runtime.cpp"],
-                            include_dirs=['miniparla'],
-                            library_dirs=['miniparla'],
+                            include_dirs=['miniparla']+include_dirs,
+                            library_dirs=['miniparla']+library_dirs,
                             depends=['miniparla/cpp_runtime.hpp'],
                             extra_compile_args=compile_args,
                             emit_linenums=True,
