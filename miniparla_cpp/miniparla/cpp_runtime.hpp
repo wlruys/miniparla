@@ -11,6 +11,19 @@
 #include <thread>
 #include <vector>
 
+
+#include<nvtx3/nvtx3.hpp>
+// Define a registered string tag type
+struct my_domain{ static constexpr char const* name{"Runtime"}; };
+
+using my_scoped_range = nvtx3::scoped_range_in<my_domain>;
+using my_registered_string = nvtx3::registered_string_in<my_domain>;
+
+struct add_dependent_msg{ static constexpr char const* message{"add_dependency"}; };
+struct add_dependency_msg{ static constexpr char const* message{"add_dependent"}; };
+struct notify_msg{ static constexpr char const* message{"notify_dependents"}; };
+struct launcher_msg{ static constexpr char const* message{"run_launcher"}; };
+
 using namespace std::chrono_literals;
 
 #ifdef PARLA_LOGGING

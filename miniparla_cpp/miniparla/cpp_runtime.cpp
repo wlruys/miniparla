@@ -32,6 +32,7 @@ int log_write(std::string filename) { return 0; }
 
 #endif
 
+
 //Input: PythonTask
 //Explaination: Call python routine to attempt to grab a worker thread, assign a task to it, and then notify the thread.
 //Output: If no worker thread is available, return false. Otherwise, return true.
@@ -94,6 +95,8 @@ void InnerTask::add_dependency_unsafe(InnerTask* task) {
 }
 
 void InnerTask::add_dependency(InnerTask* task) {
+    auto& msg = my_registered_string::get<add_dependency_msg>();
+    my_scoped_range r{msg}; 
     this->m.lock();
     //std::cout << "add_dependency (c++) " << this->num_deps << std::endl;
     this->add_dependency_unsafe(task);
@@ -133,6 +136,10 @@ bool InnerTask::blocked_unsafe(){
 }
 
 bool InnerTask::add_dependent(InnerTask* task){
+
+    auto& msg = my_registered_string::get<add_dependent_msg>();
+    my_scoped_range r{msg}; 
+
     this->m.lock();
     if (this->complete){
         //std::cout << "Task " << this->id << " is already complete" << std::endl;
@@ -149,7 +156,10 @@ bool InnerTask::add_dependent(InnerTask* task){
 
 void InnerTask::notify_dependents(InnerScheduler* scheduler){
   LOG("Finished Task {}", this->name);
-  this->m.lock();
+
+  auto& msg = my_registered_string::get<notify_msg>();
+  my_scoped_range r{msg}; 
+
   // std::cout << "notify_dependents " << this->id << std::endl;
   this->complete = true;
   for (int i = 0; i < this->dependents.size(); i++) {
@@ -224,7 +234,7 @@ void InnerScheduler::enqueue_worker(InnerWorker *worker) {
 }
 
 InnerWorker *InnerScheduler::dequeue_worker() {
-
+  my_scoped_range r("Dequeue Worker", nvtx3::rgb{0,255,0});
   this->thread_queue_mutex.lock();
   // std::cout << "thread_queue size: " << this->thread_queue.size()
   //<< this->free_threads << std::endl;
@@ -238,6 +248,7 @@ InnerWorker *InnerScheduler::dequeue_worker() {
 
 //Enqueue a task to ready (Safe/Unsafe)
 void InnerScheduler::enqueue_task(InnerTask* task){
+    my_scoped_range r("Enqueue Task", nvtx3::rgb{255,0,0});
     this->ready_queue_mutex.lock();
     this->ready_queue.push_back(task);
     this->ready_queue_mutex.unlock();
@@ -260,6 +271,8 @@ float InnerScheduler::get_resources_next() {
 
 //Dequeue a task from ready (Safe/Unsafe)
 InnerTask* InnerScheduler::dequeue_task(){
+
+    my_scoped_range r("Dequeue Task", nvtx3::rgb{255,0,0});
     this->ready_queue_mutex.lock();
     InnerTask *task = this->ready_queue.back();
     this->ready_queue.pop_back();
@@ -279,6 +292,7 @@ InnerTask* InnerScheduler::dequeue_task_unsafe(){
 }
 
 int InnerScheduler::get_ready_queue_size(){
+    my_scoped_range r("Get Queue Size", nvtx3::rgb{255,0,0});
     this->ready_queue_mutex.lock();
     int size = this->ready_queue.size();
     this->ready_queue_mutex.unlock();
@@ -325,6 +339,7 @@ int InnerScheduler::get_thread_queue_size_unsafe() {
 int InnerScheduler::get_ready_tasks_unsafe() { return this->ready_tasks; }
 
 int InnerScheduler::get_ready_tasks() {
+  my_scoped_range r("Get # Ready Tasks", nvtx3::rgb{255,0,0});
   this->ready_queue_mutex.lock();
   int size = this->ready_tasks;
   this->ready_queue_mutex.unlock();
@@ -335,6 +350,9 @@ int InnerScheduler::get_ready_tasks() {
 int InnerScheduler::run_launcher() {
 
   int exit_flag = 0;
+
+  auto& msg = my_registered_string::get<launcher_msg>();
+  my_scoped_range r(msg, nvtx3::rgb{127,255,0});
 
   if (true) {
 
@@ -411,6 +429,7 @@ int InnerScheduler::run_scheduler() {
 //Launch Task python callback
 bool InnerScheduler::launch_task(InnerTask *task, InnerWorker *worker) {
 
+  my_scoped_range r("launch task", nvtx3::rgb{127,127,0});
   bool success = false;
   void *py_task = task->task;
   void *py_worker = worker->worker;
@@ -427,6 +446,7 @@ bool InnerScheduler::launch_task(InnerTask *task, InnerWorker *worker) {
 }
 
 void InnerScheduler::run(){
+  my_scoped_range r("RUN", nvtx3::rgb{127,127,0});
   unsigned long long i = 0;
   int exit_flag = 0;
   while (this->should_run) {
@@ -458,13 +478,14 @@ void InnerScheduler::decr_running_tasks(){
 
 //active tasks
 void InnerScheduler::incr_active_tasks(){
+    my_scoped_range r("incr active", nvtx3::rgb{127,127,0});
     this->active_tasks_mutex.lock();
     this->active_tasks++;
     this->active_tasks_mutex.unlock();
 }
 
 bool InnerScheduler::decr_active_tasks(){
-
+    my_scoped_range r("decr active", nvtx3::rgb{127,127,0});
     this->active_tasks_mutex.lock();
     this->active_tasks--;
     bool condition = this->active_tasks == 0;
@@ -531,6 +552,7 @@ int InnerScheduler::get_running_tasks_unsafe(){
 }
 
 int InnerScheduler::get_active_tasks(){
+    my_scoped_range r("get_active_tasks", nvtx3::rgb{127,127,0});
     this->active_tasks_mutex.lock();
     int active_tasks = this->active_tasks;
     this->active_tasks_mutex.unlock();

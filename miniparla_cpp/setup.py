@@ -4,8 +4,15 @@ import os
 from setuptools import setup, Extension
 from Cython.Build import cythonize
 
-logging = True
+logging = False
 debug = True
+
+nvtx_include = os.getenv("NVTX_INCLUDE", None)
+
+nvtx_flag = False
+
+if nvtx_include is not None:
+    nvtx_flag = True
 
 def scandir(dir, files=[]):
     for file in os.listdir(dir):
@@ -35,6 +42,17 @@ compile_args_debug = ["-std=c++20", "-fopenmp", "-lpthread", "-lgomp", "-lm", "-
 if debug:
     compile_args = compile_args_debug
 
+compile_args += ["-ldl", "-fno-stack-protector"]
+
+if nvtx_flag:
+    include_dirs = [nvtx_include]
+    compile_args += ["-DNVTX_ENABLE"]
+    print("BUILDING WITH NVTX SUPPORT")
+else:
+    include_dirs = []
+
+
+
 if logging:
     log_include = "/home/will/workspace/binlog/install/usr/local/include/"
     log_lib = "/home/will/workspace/binlog/install/usr/local/lib/"
@@ -46,10 +64,10 @@ else:
 python_include = "/home/will/miniconda3/include/python3.9/"
 
 if logging:
-    include_dirs = [python_include, log_include]
+    include_dirs += [python_include, log_include]
     library_dirs = [log_lib]
 else:
-    include_dirs = [python_include]
+    include_dirs += [python_include]
     library_dirs = []
 
 extensions = []

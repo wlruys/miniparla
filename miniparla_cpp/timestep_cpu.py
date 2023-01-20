@@ -6,6 +6,8 @@ from numba import njit, jit
 import math
 import time
 
+import nvtx
+
 from miniparla import Parla
 from miniparla.barriers import TaskSpace, Tasks
 from miniparla.spawn import spawn
@@ -70,6 +72,7 @@ def main(N, d, steps, NUM_WORKERS, WIDTH, cpu_array, sync_flag, vcu_flag,
 
                 @spawn(T[1, t, ng], dependencies=deps, vcus=vcus)
                 def task():
+                    nvtx.push_range(message="Outer", domain="compute")
                     if verbose:
                         print("Task", [1, ng, t], "Started.", flush=True)
                         inner_start_t = time.perf_counter()
@@ -87,6 +90,7 @@ def main(N, d, steps, NUM_WORKERS, WIDTH, cpu_array, sync_flag, vcu_flag,
                         print("Task", [1, ng, t], "Finished. I took ",
                               inner_elapsed, flush=True)
                         #print("I am task", [1, t, ng], ". I took ", inner_elapsed, ". on device", A.device, flush=True)
+                    nvtx.pop_range(domain="compute")
 
             if sync_flag:
                 if verbose:
@@ -155,9 +159,12 @@ if __name__ == "__main__":
             yield start
             start <<= 1
 
+
+    nvtx.push_range(message="Main")
+
     print(', '.join([str('workers'), str('n'), str('task_time'), str(
         'accesses'), str('frac'), str('total_time')]), flush=True)
-    for task_time in [10000, 50000]:
+    for task_time in [10000]:
         for accesses in [1]:
             for nworkers in drange(1, args.workers):
                 for frac in [0]:
@@ -165,3 +172,6 @@ if __name__ == "__main__":
                         main(N, d, STEPS, nworkers, nworkers, cpu_array, isync, args.vcus,
                              args.deps, args.verbose, task_time, accesses, frac,
                              args.sleep, args.strong, args.restrict)
+
+    nvtx.pop_range()
+
