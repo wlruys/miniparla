@@ -61,13 +61,13 @@ else:
     log_include = ""
     log_lib = ""
 
-python_include = "/home/will/miniconda3/include/python3.9/"
+#python_include = "/home/will/miniconda3/include/python3.9/"
 
 if logging:
-    include_dirs += [python_include, log_include]
+    include_dirs += [log_include]
     library_dirs = [log_lib]
 else:
-    include_dirs += [python_include]
+    include_dirs += []
     library_dirs = []
 
 extensions = []
